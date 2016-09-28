@@ -69,7 +69,7 @@
                 var textArr = [key, text, name, postid];
                 textString.push(textArr);
             });
-            var editableImage = $('.editableImage.imageChanged');
+            var editableImage = $('img.imageChanged');
             editableImage.each(function(){
                 var text = $(this).data('attachmentid');
                 var key = $(this).data('key');

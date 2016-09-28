@@ -148,7 +148,7 @@ class Acf_Front_End_Editor_Public {
             add_filter('acf/load_value/type=text',  array( $this, 'acf_targeter'), 10, 3);
             add_filter('acf/load_value/type=textarea', array( $this, 'acf_targeter'), 10, 3);
             add_filter('acf/load_value/type=wysiwyg', array( $this, 'acf_wysiwyg_targeter'), 10, 3);
-            add_filter('acf/load_value/type=image', array( $this, 'acf_image_targeter'), 10, 3);
+            add_filter('acf/format_value/type=image', array( $this, 'acf_image_format_value'), 10, 3);
             add_filter('acf/format_value/type=text', array( $this, 'my_acf_format_value'), 10, 3);
             add_filter('acf/format_value/type=textarea', array( $this, 'my_acf_format_value'), 10, 3);
             add_filter('acf/format_value/type=wysiwyg', array( $this, 'my_acf_format_value'), 10, 3);
@@ -181,111 +181,133 @@ class Acf_Front_End_Editor_Public {
         }
         die();
     }
-    static function editable_image($value, $post_id = 0, $field){
-        if ( $post_id < 1){
-            global $post;
-            $post_id = $post->ID;
-            if ( $post_id < 0 ){
-                throw new Exception("No Post ID or invalid Post ID found using " . __FUNCTION__, 1);
-                return;
-            }
-        }
-        $field_object = get_field_object($field_name);
-        // print_x($field_object);
-        if ( !isset($field_object['type']) || $field_object['type'] != 'image' ){
-            return;
-        }
-        if ( !isset( $field_object['return_format'] ) || !$field_object['return_format'] || !isset( $field_object['key'] )){
-            throw new Exception("Internal Error");
-            return;
-        }
-        $value = get_field($field_name, $post_id);
-        $key = $field_object['key'];
-        switch ( $return_format = $field_object['return_format'] ){
-            case 'id' :
-                $value = wp_get_attachment_image_src( $value, $size );
-                $src = $value[0];
-            break;
-            case 'array' :
-                $src = $value['url'];
-            break;
-            case 'url' :
-                $src = $value;
-            break;
-            default :
-              throw new Exception("Return value not supported.");
-            break;
-        }
-        echo '<div class="acf $field_name">';
-          echo "<img class='display-$key' src='$src' alt='>";
-          echo "<input type='button' class='button edit-image-src editableImage' value='Edit' data-name='$field_name' data-key='$key' data-postid='$post_id' data-attachmentid=''>";
-        echo '</div>';
-        ?>
-        <script>
-        (function( $, document ){
-            var frame,
-                metaBox = $('#meta-box-id.postbox'), // Your meta box id here
-                addImgLink = metaBox.find('.upload-custom-img'),
-                delImgLink = metaBox.find( '.delete-custom-img'),
-                imgContainer = metaBox.find( '.custom-img-container'),
-                imgIdInput = metaBox.find( '.custom-img-id' );
-            $('input.edit-image-src').on('click', function(){
+    static function acf_image_format_value($value, $post_id, $field){
+      if ( !current_user_can('delete_plugins') ){
+        return $value;
+      }
+      if ( !isset($field['type']) || $field['type'] != 'image' ){
+          return;
+      }
+      if ( !isset( $field['return_format'] ) || !$field['return_format'] || !isset( $field['key'] )){
+          throw new Exception("Internal Error");
+          return;
+      }
+      $key = $field['key'];
+      $name = $field['name']; //need to get name
+      $src = "";
+      switch ( $return_format = $field['return_format'] ){
+          case 'id' :
+              $src = $value;
+          break;
+          case 'array' :
+              $src = $value;
+              foreach( get_intermediate_image_sizes() as $size ){
+                $src['sizes'][$size] = $src['sizes'][$size] . "?field_key={$key}&post_id={$post_id}&field_name={$name}&acfImageEditable";
+              }
+              $src['url'] = $src['url'] . "?field_key={$key}&post_id={$post_id}&field_name={$name}&acfImageEditable";
+          break;
+          case 'url' :
+              $src = $src . "?field_key={$key}&post_id={$post_id}&field_name={$name}&acfImageEditable";
+          break;
+          default :
+            throw new Exception("Return value not supported.");
+          break;
+      }
+      // echo $value;
+      // echo '<div class="acf $field_name">';
+        // echo "<img class='display-$key' src='$src' alt='>";
+      // echo '</div>';
+      ?>
+      <script>
+      (function( $, document ){
+        jQuery(document).ready(function(){
+          var frame,
+            metaBox = $('#meta-box-id.postbox'), // Your meta box id here
+            addImgLink = metaBox.find('.upload-custom-img'),
+            delImgLink = metaBox.find( '.delete-custom-img'),
+            imgContainer = metaBox.find( '.custom-img-container'),
+            imgIdInput = metaBox.find( '.custom-img-id' );
+            var editableImages = jQuery('[src*="acfImageEditable"]');
+            editableImages.on('click', function(){
                 
-                // Get media attachment details from the frame state
-                event.preventDefault();
-                
-                var source = this;
-                var $source = $(this);
-                // If the media frame already exists, reopen it.
-                if ( frame ) {
-                  frame.open();
-                  return;
-                }
-                
-                // Create a new media frame
-                frame = wp.media({
-                  title: 'Select or Upload Media',
-                  button: {
-                    text: 'Choose'
-                  },
-                  multiple: false  // Set to true to allow multiple files to be selected
-                });
-
-                frame.on( 'select', function() {
-
-                  var attachment = frame.state().get('selection').first();
-
-                  attachment = attachment.toJSON();
-                  // console.log(attachment);
-
-                  // console.log(source);
-
-                  // Send the attachment URL to our custom image input field.
-                  var key = $source.data('key');
-                  var display = $('.display-' + key);
-                  if ( display ){
-                    display.attr('src', attachment.url);
-                  }
-                  $source.addClass('imageChanged');
-                  $source.data('attachmentid', attachment.id);
-
-                  // Send the attachment id to our hidden input
-                  imgIdInput.val( attachment.id );
-
-                  // Hide the add image link
-                  addImgLink.addClass( 'hidden' );
-
-                  // Unhide the remove image link
-                  delImgLink.removeClass( 'hidden' );
-
-                });
-
-                // Finally, open the modal on click
+              // Get media attachment details from the frame state
+              event.preventDefault();
+              var button = "<input type='button' class='button edit-image-src editableImage' value='Edit' data-name='$field_name' data-key='$key' data-postid='$post_id' data-attachmentid=''>";
+              
+              var source = this;
+              var $source = $(this);
+              console.log($source);
+              // If the media frame already exists, reopen it.
+              if ( frame ) {
                 frame.open();
-            });
-        })( jQuery, document, undefined );
-        </script>
-        <?php
+                return;
+              }
+              
+              // Create a new media frame
+              frame = wp.media({
+                title: 'Select or Upload Media',
+                button: {
+                  text: 'Choose'
+                },
+                multiple: false  // Set to true to allow multiple files to be selected
+              });
+
+              frame.on( 'select', function() {
+
+                var attachment = frame.state().get('selection').first();
+
+                attachment = attachment.toJSON();
+                // console.log(attachment);
+
+                // console.log(source);
+
+                // Send the attachment URL to our custom image input field.
+                var postid = getParamFromURL('post_id', source.src);
+                var key = getParamFromURL('field_key', source.src);
+                var field_name = getParamFromURL('field_name', source.src);
+
+                source.src = attachment.url;
+                $source.addClass('imageChanged');
+                $source.data('attachmentid', attachment.id);
+                $source.data('postid', postid);
+                $source.data('name', field_name);
+                $source.data('key', key);
+
+                // Send the attachment id to our hidden input
+                // imgIdInput.val( attachment.id );
+
+                // Hide the add image link
+                addImgLink.addClass( 'hidden' );
+
+                // Unhide the remove image link
+                delImgLink.removeClass( 'hidden' );
+
+              });
+
+              // Finally, open the modal on click
+              frame.open();
+          });
+          
+        });
+        function getParamFromURL(sParam, source) {
+          if ( source == "" )
+            return null;
+          source = source.substring( source.indexOf('?') + 1 );
+          var sURLVariables = source.split('&'),
+              sParameterName,
+              i;
+          for (i = 0; i < sURLVariables.length; i++) {
+            sParameterName = sURLVariables[i].split('=');
+
+            if (sParameterName[0] === sParam) {
+                return sParameterName[1] === undefined ? true : sParameterName[1];
+            }
+          }
+        };
+      })( jQuery, document, undefined );
+      </script>
+      <?php
+      return $src;
     }
 }
 /**
