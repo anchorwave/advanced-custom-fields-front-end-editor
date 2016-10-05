@@ -36,23 +36,33 @@ class Acf_Front_End_Editor_Public {
 	 *
 	 * @since    1.0.0
 	 * @access   private
-	 * @var      string    $version    The current version of this plugin.
+	 * @var      string    $version The current version of this plugin.
 	 */
 	private $version;
 
-	/**
-	 * Initialize the class and set its properties.
-	 *
-	 * @since    1.0.0
-	 * @param      string    $plugin_name       The name of the plugin.
-	 * @param      string    $version    The version of this plugin.
-	 */
-	public function __construct( $plugin_name, $version ) {
+  /**
+   * A simple array to cache the real meta key used by repeater field sub-items. Since format_value does not provide this information, we use the load_value hook to cache it first and then retreive it later in format_value hook.
+   * 
+   * @since     2.1.0
+   * @access    public
+   * @var       array     $field_cache  An array of (ACF field 'key')->(post meta key)
+   * @author jbokhari
+   */
+  public $field_cache = array();
 
-		$this->plugin_name = $plugin_name;
-		$this->version = $version;
+  /**
+   * Initialize the class and set its properties.
+   *
+   * @since      1.0.0
+   * @param      string    $plugin_name       The name of the plugin.
+   * @param      string    $version    The version of this plugin.
+   */
+  public function __construct( $plugin_name, $version ) {
 
-	}
+    $this->plugin_name = $plugin_name;
+    $this->version = $version;
+
+  }
 
 	/**
 	 * Register the stylesheets for the public-facing side of the site.
@@ -87,6 +97,21 @@ class Acf_Front_End_Editor_Public {
         endif;
 	}
 
+  /**
+   * Used only to cache the fields real meta_key value which is not easily accessible in the format_value hook. This hook does not alter the $value returned. Editable images are handled through JS and the format_value hook later on.
+   * 
+   * @param Int $value Value of the field (should be image attachment ID)
+   * @param Int $post_id Post ID associated with this field
+   * @param Object $field Field object with meta information
+   * @return Int $value Returns unaltered $value for the image after completing caching task(s)
+   * 
+   * @since 2.1.0
+   * @author jbokhari
+   */
+  public function acf_image_targeter( $value, $post_id, $field ) {
+      $this->field_cache[$field['key']] = $field['name'];
+      return $value;
+  }
     /**
      * Renders text fields and text areas with additional html that allows to target these areas via javascript
      * @param  [String] $value
@@ -97,13 +122,13 @@ class Acf_Front_End_Editor_Public {
      * @since    1.0.0
      */
     public function acf_targeter( $value, $post_id, $field ) {
-            if(strpos($value, 'http') === 0 || $value == '#' || $value == '' || filter_var($value, FILTER_VALIDATE_EMAIL) || is_admin()) {
+            if(strpos($value, 'http') === 0 || substr($value, 0, 1) == "/" || $value == '#' || $value == '' || filter_var($value, FILTER_VALIDATE_EMAIL) || is_admin()) {
                 $value = $value;
             } else {
                 $key=$field['key'];
                 $label=$field['name'];
                 $type = 'labas';
-                $value = '<d contenteditable data-postid="'.$post_id.'" data-name="'.$label.'" data-key="'.$field['key'].'">'.$value.'</d>';
+                $value = '<div contenteditable data-postid="'.$post_id.'" data-name="'.$label.'" data-key="'.$field['key'].'">'.$value.'</div>';
             }
         return $value;
     }
@@ -148,6 +173,8 @@ class Acf_Front_End_Editor_Public {
             add_filter('acf/load_value/type=text',  array( $this, 'acf_targeter'), 10, 3);
             add_filter('acf/load_value/type=textarea', array( $this, 'acf_targeter'), 10, 3);
             add_filter('acf/load_value/type=wysiwyg', array( $this, 'acf_wysiwyg_targeter'), 10, 3);
+            add_filter('acf/load_value/type=image', array( $this, 'acf_image_targeter'), 10, 3);
+
             add_filter('acf/format_value/type=image', array( $this, 'acf_image_format_value'), 10, 3);
             add_filter('acf/format_value/type=text', array( $this, 'my_acf_format_value'), 10, 3);
             add_filter('acf/format_value/type=textarea', array( $this, 'my_acf_format_value'), 10, 3);
@@ -181,148 +208,87 @@ class Acf_Front_End_Editor_Public {
         }
         die();
     }
-    static function acf_image_format_value($value, $post_id, $field){
-      if ( !current_user_can('delete_plugins') ){
+    /**
+     * Appdnds URL parameters to image urls which is then picked up by JavaScript to make it editable on the front end
+     * 
+     * @param int|string|mixed[] $value original value returned by ACF, it may already be filtered or filtered again before being exposed on page templates
+     * @param int $post_id original value returned by ACF
+     * @param array $field Field object
+     * 
+     * @see wp filter acf/format_value
+     * 
+     * @todo add/remove image support (here and other areas)
+     * @since 2.1.0
+     * @author jbokhari
+     */
+    function acf_image_format_value($value, $post_id, $field){
+      // ::Conditions::
+         //Check certain things before proceeding, each case returns original value on failure
+      // May need to check this logic later
+      if ( empty($value) ){
         return $value;
       }
+      
+      // ignore errors with $real_name not caching
+      @$real_name = $this->field_cache[$field['key']];
+      if ( !isset($real_name) || empty($real_name) ){
+        throw new Exception("Internal Error: Cache was not created");
+      }
+
+      // ignore admin, non-logged-in users
+      if ( !current_user_can('delete_plugins') || is_admin() ){
+        return $value;
+      }
+
+      // Prob not necessary, only hooked into image fields...
       if ( !isset($field['type']) || $field['type'] != 'image' ){
-          return;
+          return $value;
       }
+
+      // When the field has yet to be populated, the return format isn't identifiable yet
+      // Should images that are not populated be editable? ...TODO add/remove image
+
       if ( !isset( $field['return_format'] ) || !$field['return_format'] || !isset( $field['key'] )){
-          throw new Exception("Internal Error");
-          return;
+          return $value;
       }
+
       $key = $field['key'];
-      $name = $field['name']; //need to get name
-      $src = "";
       switch ( $return_format = $field['return_format'] ){
           case 'id' :
-              $src = $value;
+            //not sure how to handle ID return format yet, ignored now
           break;
           case 'array' :
-              $src = $value;
               foreach( get_intermediate_image_sizes() as $size ){
-                $src['sizes'][$size] = $src['sizes'][$size] . "?field_key={$key}&post_id={$post_id}&field_name={$name}&acfImageEditable";
+                $value['sizes'][$size] = $value['sizes'][$size] . "?field_key={$key}&post_id={$post_id}&field_name={$real_name}&acfImageEditable";
               }
-              $src['url'] = $src['url'] . "?field_key={$key}&post_id={$post_id}&field_name={$name}&acfImageEditable";
+              $value['url'] = $value['url'] . "?field_key={$key}&post_id={$post_id}&field_name={$real_name}&acfImageEditable";
           break;
           case 'url' :
-              $src = $src . "?field_key={$key}&post_id={$post_id}&field_name={$name}&acfImageEditable";
+              $value = $value . "?field_key={$key}&post_id={$post_id}&field_name={$real_name}&acfImageEditable";
           break;
           default :
+            // If ACF adds a new return format not supported here
             throw new Exception("Return value not supported.");
           break;
       }
-      // echo $value;
-      // echo '<div class="acf $field_name">';
-        // echo "<img class='display-$key' src='$src' alt='>";
-      // echo '</div>';
-      ?>
-      <script>
-      (function( $, document ){
-        jQuery(document).ready(function(){
-          var frame,
-            metaBox = $('#meta-box-id.postbox'), // Your meta box id here
-            addImgLink = metaBox.find('.upload-custom-img'),
-            delImgLink = metaBox.find( '.delete-custom-img'),
-            imgContainer = metaBox.find( '.custom-img-container'),
-            imgIdInput = metaBox.find( '.custom-img-id' );
-            var editableImages = jQuery('[src*="acfImageEditable"]');
-            editableImages.on('click', function(){
-                
-              // Get media attachment details from the frame state
-              event.preventDefault();
-              var button = "<input type='button' class='button edit-image-src editableImage' value='Edit' data-name='$field_name' data-key='$key' data-postid='$post_id' data-attachmentid=''>";
-              
-              var source = this;
-              var $source = $(this);
-              console.log($source);
-              // If the media frame already exists, reopen it.
-              if ( frame ) {
-                frame.open();
-                return;
-              }
-              
-              // Create a new media frame
-              frame = wp.media({
-                title: 'Select or Upload Media',
-                button: {
-                  text: 'Choose'
-                },
-                multiple: false  // Set to true to allow multiple files to be selected
-              });
-
-              frame.on( 'select', function() {
-
-                var attachment = frame.state().get('selection').first();
-
-                attachment = attachment.toJSON();
-                // console.log(attachment);
-
-                // console.log(source);
-
-                // Send the attachment URL to our custom image input field.
-                var postid = getParamFromURL('post_id', source.src);
-                var key = getParamFromURL('field_key', source.src);
-                var field_name = getParamFromURL('field_name', source.src);
-
-                source.src = attachment.url;
-                $source.addClass('imageChanged');
-                $source.data('attachmentid', attachment.id);
-                $source.data('postid', postid);
-                $source.data('name', field_name);
-                $source.data('key', key);
-
-                // Send the attachment id to our hidden input
-                // imgIdInput.val( attachment.id );
-
-                // Hide the add image link
-                addImgLink.addClass( 'hidden' );
-
-                // Unhide the remove image link
-                delImgLink.removeClass( 'hidden' );
-
-              });
-
-              // Finally, open the modal on click
-              frame.open();
-          });
-          
-        });
-        function getParamFromURL(sParam, source) {
-          if ( source == "" )
-            return null;
-          source = source.substring( source.indexOf('?') + 1 );
-          var sURLVariables = source.split('&'),
-              sParameterName,
-              i;
-          for (i = 0; i < sURLVariables.length; i++) {
-            sParameterName = sURLVariables[i].split('=');
-
-            if (sParameterName[0] === sParam) {
-                return sParameterName[1] === undefined ? true : sParameterName[1];
-            }
-          }
-        };
-      })( jQuery, document, undefined );
-      </script>
-      <?php
-      return $src;
+      return $value;
     }
 }
-/**
- * Get editable image markup
- * 
- * @uses /Acf_Front_End_Editor_Public::editable_image()
- * @package /Acf_Front_End_Editor_Public
- */
-function editable_image($field_name, $post_id = 0, $size = "full"){
-    Acf_Front_End_Editor_Public::editable_image($field_name, $post_id, $size);
-}
+if (!function_exists('print_clean') ) :
+  /**
+   * Debugging function to wrap print_r in <pre> tag and make it pretty
+   * 
+   * @param $var mixed the variable to print, typically an array or object but could be any type
+   * @return void
+   * 
+   * @since 2.1.0
+   * @author jbokhari
+   */
+  function print_clean($var){
+      echo "<pre class='print-x'>";
+      echo "<small>print_r results</small>";
+      print_r($var);
+      echo "</pre>";
+  }
+endif;
 
-function print_x($var){
-    echo "<pre class='print-x'>";
-    echo "<small>print_r results</small>";
-    print_r($var);
-    echo "</pre>";
-}

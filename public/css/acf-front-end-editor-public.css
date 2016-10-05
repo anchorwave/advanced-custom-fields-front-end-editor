@@ -1,6 +1,19 @@
- [contenteditable] {outline: none !important;}
- #wpadminbar #wp-admin-bar-edit-live>.ab-item:before{content: '\f464';top: 2px;}
 
+ #wpadminbar #wp-admin-bar-edit-live>.ab-item:before{
+  content: "\f502";
+  top: 2px;
+}
+ #wpadminbar a[disabled]{color: #777 !important;cursor:default; background: #333 !important;}
+ #wpadminbar a[disabled]:before{color: #777 !important;}
+.acfImageEditable:hover:after{
+
+}
+[contenteditable]:hover,
+.acfImageEditable:hover {
+  outline:2px solid #afa;
+  z-index: 159898;
+  position: relative;
+}
 .hd-pop {
   position: fixed;
   min-width: 300px;

@@ -2,14 +2,14 @@
 
 /**
  * @link              http://www.horiondigital.com
- * @since             1.0.0
+ * @since             1.1.0
  * @package           Acf_Front_End_Editor
  *
  * @wordpress-plugin
- * Plugin Name:       ACF Front End Editor
+ * Plugin Name:       AWIS ACF Front End Editor
  * Plugin URI:        https://github.com/HorionDigital/advanced-custom-fields-front-end-editor
- * Description:       This is a short description of what the plugin does. It's displayed in the WordPress admin area.
- * Version:           2.0.0
+ * Description:       Automatically creates 
+ * Version:           2.1.0
  * Author:            Horion Digital
  * Author URI:        http://www.horiondigital.com
  * License:           GPL-2.0+
